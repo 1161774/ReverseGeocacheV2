@@ -79,6 +79,8 @@
 #include "driverlib/uart.h"
 #include "utils/uartstdio.h"
 
+#include "MCCOG21605B6W-SPTLYI.h"
+
 #define LED_RED		GPIO_PIN_1
 #define LED_BLUE	GPIO_PIN_2
 #define	LED_GREEN	GPIO_PIN_3
@@ -159,7 +161,6 @@ struct _GPSReadBuffer GPSRead;
 
 #define DEG_TO_RAD 			M_PI/180
 
-#define	SLAVE_ADDRESS		0x3E
 
 //*****************************************************************************
 //
@@ -266,184 +267,55 @@ ConfigureUART1(void)
 
 }
 
-
-void ConfigureI2C2(void)
+void I2C2Configure()
 {
 
-    //
-    // The I2C0 peripheral must be enabled before use.
-    //
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C2);
+	//
+	// The I2C0 peripheral must be enabled before use.
+	//
+	SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C2);
 
-    //
-    // For this example I2C0 is used with PortB[3:2].  The actual port and
-    // pins used may be different on your part, consult the data sheet for
-    // more information.  GPIO port B needs to be enabled so these pins can
-    // be used.
-    // TODO: change this to whichever GPIO port you are using.
-    //
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
+	//
+	// The GPIO_E peripheral must be enabled before use.
+	//
+	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
 
-    //
-    // Configure the pin muxing for I2C0 functions on port B2 and B3.
-    // This step is not necessary if your part does not support pin muxing.
-    // TODO: change this to select the port/pin you are using.
-    //
-    GPIOPinConfigure(GPIO_PE4_I2C2SCL);
-    GPIOPinConfigure(GPIO_PE5_I2C2SDA);
+	//
+	// Configure the pin muxing for I2C2 functions on port E4 and E5.
+	//
+	GPIOPinConfigure(GPIO_PE4_I2C2SCL);
+	GPIOPinConfigure(GPIO_PE5_I2C2SDA);
 
-    //
-    // Select the I2C function for these pins.  This function will also
-    // configure the GPIO pins pins for I2C operation, setting them to
-    // open-drain operation with weak pull-ups.  Consult the data sheet
-    // to see which functions are allocated per pin.
-    // TODO: change this to select the port/pin you are using.
-    //
-    GPIOPinTypeI2CSCL(GPIO_PORTE_BASE, GPIO_PIN_4);
-    GPIOPinTypeI2C(GPIO_PORTE_BASE, GPIO_PIN_5);
+	//
+	// Select the I2C function for these pins.  This function will also
+	// configure the GPIO pins pins for I2C operation, setting them to
+	// open-drain operation with weak pull-ups.  Consult the data sheet
+	// to see which functions are allocated per pin.
+	//
+	GPIOPinTypeI2CSCL(GPIO_PORTE_BASE, GPIO_PIN_4);
+	GPIOPinTypeI2C(GPIO_PORTE_BASE, GPIO_PIN_5);
 
-    //
-    // Enable and initialize the I2C0 master module.  Use the system clock for
-    // the I2C0 module.  The last parameter sets the I2C data transfer rate.
-    // If false the data rate is set to 100kbps and if true the data rate will
-    // be set to 400kbps.  For this example we will use a data rate of 100kbps.
-    //
-    I2CMasterInitExpClk(I2C2_BASE, SysCtlClockGet(), false);
+	//
+	// Enable and initialize the I2C2 master module.  Use the system clock for
+	// the I2C2 module.  The last parameter sets the I2C data transfer rate.
+	// If false the data rate is set to 100kbps and if true the data rate will
+	// be set to 400kbps.  For this example we will use a data rate of 100kbps.
+	//
+	I2CMasterInitExpClk(I2C2_BASE, SysCtlClockGet(), false);
 
-    //
-    // Tell the master module what address it will place on the bus when
-    // communicating with the slave.  Set the address to SLAVE_ADDRESS
-    // (as set in the slave module).  The receive parameter is set to false
-    // which indicates the I2C Master is initiating a writes to the slave.  If
-    // true, that would indicate that the I2C Master is initiating reads from
-    // the slave.
-    //
-    I2CMasterSlaveAddrSet(I2C2_BASE, SLAVE_ADDRESS, false);
+	//
+	// Tell the master module what address it will place on the bus when
+	// communicating with the slave.  Set the address to SLAVE_ADDRESS
+	// (as set in the slave module).  The receive parameter is set to false
+	// which indicates the I2C Master is initiating a writes to the slave.  If
+	// true, that would indicate that the I2C Master is initiating reads from
+	// the slave.
+	//
+	I2CMasterSlaveAddrSet(I2C2_BASE, SLAVE_ADDRESS, false);
 
 
 }
 
-void I2CTransmitChar(uint32_t I2CBase, char TransmitChar)
-{
-    I2CMasterDataPut(I2CBase, TransmitChar);
-    I2CMasterControl(I2CBase, I2C_MASTER_CMD_SINGLE_SEND);
-    while(I2CMasterBusy(I2CBase)){}
-
-}
-
-void ConfigureLCD(void)
-{
-// 0x00 - Write command
-// 0x38 - Function set
-// 0x00 - Write command
-// 0x39 - Function set
-// 0x14 - Internal OSC frequency
-// 0x79 - Contrast set
-// 0x50 - Power/Icon control/Contrast set
-// 0x6C - Follower control
-// 0x0C - Display on/off
-// 0x01 - Clear display
-
-
-	//	char initString[] = {0x00, 0x38, 0x00, 0x39, 0x14, 0x79, 0x50, 0x6c, 0x0c, 0x01};	//as per datasheet
-
-//	uint32_t index, stringLength = 10;
-
-
-	I2CMasterDataPut(I2C2_BASE, 0x00);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_START);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x38);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x00);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x39);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x14);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x79);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x50);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x6C);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x0C);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x01);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_FINISH);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-
-
-
-
-//    I2CMasterControl(I2CBase, I2C_MASTER_CMD_BURST_SEND_STOP);
-
-
-/*	I2CMasterDataPut(I2C2_BASE, initString[0]);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_START);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	for(index = 1; index < stringLength; index++)
-	{
-		I2CMasterDataPut(I2C2_BASE, initString[index]);
-		I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-	    while(I2CMasterBusy(I2C2_BASE)){}
-	}
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_STOP);
-    //
-    // Wait until master module is done transferring.
-    //
-    while(I2CMasterBusy(I2C2_BASE)){}
-*/
-}
-
-void I2CTransmitString(uint32_t I2CBase uint32_t TransmitLength ,char *TransmitData)
-{
-
-	//#define I2C_MASTER_CMD_BURST_SEND_START		0x00000003
-	//#define I2C_MASTER_CMD_BURST_SEND_CONT		0x00000001
-	//#define I2C_MASTER_CMD_BURST_SEND_FINISH		0x00000005
-	//#define I2C_MASTER_CMD_BURST_SEND_STOP		0x00000004
-
-	uint32_t index
-
-
-
-	I2CMasterDataPut(I2CBase, TransmitData[0]);
-	I2CMasterControl(I2CBase, I2C_MASTER_CMD_BURST_SEND_START);
-    while(I2CMasterBusy(I2CBase)){}
-
-	for(index = 1; index < stringLength; index++)
-	{
-		I2CMasterDataPut(I2CBase, TransmitData[index]);
-		I2CMasterControl(I2CBase, I2C_MASTER_CMD_BURST_SEND_CONT);
-	    while(I2CMasterBusy(I2CBase)){}
-	}
-	I2CMasterControl(I2CBase, I2C_MASTER_CMD_BURST_SEND_STOP);
-    //
-    // Wait until master module is done transferring.
-    //
-    while(I2CMasterBusy(I2CBase)){}
-
-}
 
 
 
@@ -565,6 +437,7 @@ void BoxLock(uint32_t Cmd)
 		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,0);
 		SysCtlDelay(SysCtlClockGet()/4);
 		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,LOCK_LID);
+	    UARTprintf("****** BOX LOCKED ******\n");
 	}
 	else if(Cmd == CMDUNLOCK && g_LockStatus == STLOCKED)
 	{
@@ -572,6 +445,7 @@ void BoxLock(uint32_t Cmd)
 		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,0);
 		SysCtlDelay(SysCtlClockGet()/4);
 		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,UNLOCK_LID);
+		UARTprintf("***** BOX UNLOCKED *****\n");
 	}
 }
 
@@ -580,10 +454,12 @@ void LCDBacklight(uint32_t Cmd)
 	if(Cmd == LCDON)
 	{
 		GPIOPinWrite(LCD_POWER_BASE, LCD_POWER, 0);
+	    UARTprintf("LCD backlight powered on\n");
 	}
 	else if(Cmd == LCDOFF)
 	{
 		GPIOPinWrite(LCD_POWER_BASE, LCD_POWER, LCD_POWER);
+	    UARTprintf("LCD backlight powered off\n");
 	}
 }
 
@@ -591,11 +467,13 @@ void GPSPower(uint32_t Cmd)
 {
 	if(Cmd == GPSON)
 	{
-		GPIOPinWrite(GPS_POWER_BASE, GPS_POWER, 0);
+	    GPIOPinWrite(GPS_POWER_BASE, GPS_POWER, 0);
+	    UARTprintf("GPS powered on\n");
 	}
 	else if(Cmd == GPSOFF)
 	{
 		GPIOPinWrite(GPS_POWER_BASE, GPS_POWER, GPS_POWER);
+	    UARTprintf("GPS powered off\n");
 	}
 }
 
@@ -633,112 +511,37 @@ main(void)
 	// Open UARTS.
 	//
     ConfigureUART0();
+    UARTprintf("\033[2JReverse Geocache\n");
+    UARTprintf("---------------------------------\n\n");
+
+    UARTprintf("Opening GPS Comms\n\n");
     ConfigureUART1();
 
 	//
 	// Open I2C and LCD.
 	//
-	LCDBacklight(LCDOFF);
-    ConfigureI2C2();
-    ConfigureLCD();
+    UARTprintf("Opening LCD Comms\n\n");
+    I2C2Configure();
+    UARTprintf("Configuring LCD\n\n");
+    LCDConfigure(I2C2_BASE);
 	LCDBacklight(LCDON);
 
+	char string1[] = "@Aquiring Lock...";
+	char string2[] = "@Please Wait";
 
+    LCDTransmitString(I2C2_BASE, strlen(string1), string1);
+    LCDCommand(I2C2_BASE, LCD_ROW_2);
+    LCDTransmitString(I2C2_BASE, strlen(string2), string2);
 
-	I2CMasterDataPut(I2C2_BASE, 0x00);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_START);
-    while(I2CMasterBusy(I2C2_BASE)){}
+    g_LockStatus = STUNLOCKED;
+    BoxLock(CMDLOCK);
 
-	I2CMasterDataPut(I2C2_BASE, 0x80);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_FINISH);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-
-    I2CMasterDataPut(I2C2_BASE, 0x40);
-  	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_START);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x42);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x45);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x4E);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-	I2CMasterDataPut(I2C2_BASE, 0x21);
-	I2CMasterControl(I2C2_BASE, I2C_MASTER_CMD_BURST_SEND_FINISH);
-    while(I2CMasterBusy(I2C2_BASE)){}
-
-//	char row1[] = {0x00, 0x80};
-//	char row2[] = {0x00, 0xc0};
-//	char clearLine[] = "@                ";
-
-//	SysCtlDelay(SysCtlClockGet() / 120);
-
-//	I2CTransmitString(I2C2_BASE, row1);
-//	I2CTransmitChar(I2C2_BASE, 0x00);
-//	I2CTransmitChar(I2C2_BASE, 0x80);
-//	I2CTransmitChar(I2C2_BASE, 0x42);
-//	I2CTransmitChar(I2C2_BASE, 0x45);
-//	I2CTransmitChar(I2C2_BASE, 0x4E);
-//	I2CTransmitChar(I2C2_BASE, 0x21);
-
-//	I2CTransmitString(I2C2_BASE, clearLine);
-//	I2CTransmitString(I2C2_BASE, row2);
-//	I2CTransmitChar(I2C2_BASE, 0x00);
-//	I2CTransmitChar(I2C2_BASE, 0xC0);
-//	I2CTransmitString(I2C2_BASE, clearLine);
-
-//	char string1[] = "@Aquiring Lock...";
-//	char string2[] = "@Please Wait";
-//	I2CTransmitString(I2C2_BASE, string1);
-//	I2CTransmitString(I2C2_BASE, clearLine);
-//	I2CTransmitString(I2C2_BASE, string2);
-//	I2CTransmitString(I2C2_BASE, clearLine);
-
-
-	/*
-void LCD_Row1(){
-		char sentence[] = {0x00, 0x80};
-
-		I2CTransmitMultiple(address, sentence, 2);
-	}
-
-void LCD_Row2(){
-		char sentence[] = {0x00, 0xc0};
-
-		I2CTransmitMultiple(address, sentence, 2);
-	}
-
-void LCD_ClearLine(){
-	char sentence[] = "@                ";
-
-	I2CTransmitMultiple(address, sentence, 17);
-
-}
-
-	LCD_Row1();
-	LCD_ClearLine();
-	LCD_Row1();
-	I2CTransmitMultiple(address, string1, strlen(string1));
-
-	LCD_Row2();
-	LCD_ClearLine();
-	LCD_Row2();
-	I2CTransmitMultiple(address, string2, strlen(string2));
-*/
-
-    UARTprintf("\033[2JReverse Geocache\n");
-    UARTprintf("---------------------------------\n\n");
 
     //
     // Enable processor interrupts.
     //
+
+    UARTprintf("Enabling interrupts\n\n");
     ROM_IntMasterEnable();
 
     GPSPower(GPSON);
@@ -751,6 +554,11 @@ void LCD_ClearLine(){
 
     	if(GPSRead.MessageReady)
     	{
+
+#ifdef DEBUG
+    		UARTprintf("%s\n", GPSRead.RxBuffer);
+#endif
+
     		parseString();
     		GPSRead.MessageReady = false;
     	}
@@ -759,13 +567,13 @@ void LCD_ClearLine(){
         if(GPIOPinRead(PUSHBUTTON_BASE, PUSHBUTTON))
         {
         	BoxLock(CMDUNLOCK);
-        	LCDBacklight(LCDON);
+ //       	LCDBacklight(LCDON);
 
         }
         else
         {
         	BoxLock(CMDLOCK);
-        	LCDBacklight(LCDOFF);
+//        	LCDBacklight(LCDOFF);
             GPSPower(GPSOFF);
         }
 

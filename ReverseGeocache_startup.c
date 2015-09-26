@@ -280,6 +280,7 @@ FaultISR(void)
     //
     // Enter an infinite loop.
     //
+//	ResetISR();
 	while(1)
     {
     }
