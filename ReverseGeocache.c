@@ -138,6 +138,7 @@ struct _GeoData{
 	float TargetLatitude;
 	float TargetLongitude;
 	float Range;
+	uint32_t DataReceiveCount;
 };
 struct _GeoData GeoData;
 
@@ -420,8 +421,8 @@ void parseString()
 
 	if(goodCopy)
 	{
-		UARTprintf("Success\n");
-//		UARTprintf("%s",message);
+		GeoData.DataReceiveCount++;
+		UARTprintf("Success %u\n",GeoData.DataReceiveCount);
 		sscanf(message,"%f,%f,%c,%f,%c,%d,%d,%f,%f,%c,%f,%c,%f,%f",
 				&(GPS_GPGGA.UTCTime),
 				&(GPS_GPGGA.Latitude),
@@ -542,13 +543,13 @@ main(void)
     LCDConfigure(I2C2_BASE);
 	LCDBacklight(LCDON);
 
-	char string1[] = "@Aquiring Lock...";
-	char string2[] = "@Please Wait     ";
+	char NoGPSRow1[] = "@Aquiring Lock...";
+	char NoGPSRow2[] = "@Please Wait     ";
 	char lcdMessage[17];
 
-    LCDTransmitString(I2C2_BASE, strlen(string1), string1);
+    LCDTransmitString(I2C2_BASE, strlen(NoGPSRow1), NoGPSRow1);
     LCDCommand(I2C2_BASE, LCD_ROW_2);
-    LCDTransmitString(I2C2_BASE, strlen(string2), string2);
+    LCDTransmitString(I2C2_BASE, strlen(NoGPSRow2), NoGPSRow2);
 
     g_LockStatus = STUNLOCKED;
     BoxLock(CMDLOCK);
@@ -558,12 +559,14 @@ main(void)
     // Enable processor interrupts.
     //
 
-//    UARTprintf("Enabling interrupts\n\n");
+    UARTprintf("Enabling interrupts\n\n");
     ROM_IntMasterEnable();
 
+    GeoData.DataReceiveCount = 0;
     GPSPower(GPSON);
 
     bool gpsLockedPrev = false, gpsLocked = false;
+    uint32_t lastReceiveCount = 0;
 
     //
     // Loop forever.
@@ -588,21 +591,29 @@ main(void)
     	if(gpsLocked && !gpsLockedPrev)
     	{
     		UARTprintf("GPS lock aquired\n");
-    	    LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
-    	    sprintf(lcdMessage,"%10.7f%s",GPS_GPGGA.Latitude,GPS_GPGGA.NSIndicator);
-    	    LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
-    	    LCDCommand(I2C2_BASE, LCD_ROW_2);
-    	    sprintf(lcdMessage,"%10.7f%s",GPS_GPGGA.Longitude,GPS_GPGGA.EWIndicator);
-    	    LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
     	}
     	else if(!gpsLocked && gpsLockedPrev)
     	{
     		UARTprintf("GPS lock lost\n");
     	    LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
-    	    LCDTransmitString(I2C2_BASE, strlen(string1), string1);
+    	    LCDTransmitString(I2C2_BASE, strlen(NoGPSRow1), NoGPSRow1);
     	    LCDCommand(I2C2_BASE, LCD_ROW_2);
-    	    LCDTransmitString(I2C2_BASE, strlen(string2), string2);
+    	    LCDTransmitString(I2C2_BASE, strlen(NoGPSRow2), NoGPSRow2);
+    	}
 
+    	//
+    	// Using the GPS receive count effectively gives us a 1Hz pulse.
+    	//
+    	if(gpsLocked && GeoData.DataReceiveCount != lastReceiveCount)
+    	{
+    		lastReceiveCount = GeoData.DataReceiveCount;
+
+    		LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
+    		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Latitude,(char)GPS_GPGGA.NSIndicator);
+    		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+    		LCDCommand(I2C2_BASE, LCD_ROW_2);
+    		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Longitude,(char)GPS_GPGGA.EWIndicator);
+    		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
     	}
 
         if(GPIOPinRead(PUSHBUTTON_BASE, PUSHBUTTON))
