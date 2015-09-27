@@ -138,9 +138,10 @@ struct _GeoData{
 	float TargetLatitude;
 	float TargetLongitude;
 	float Range;
+	float UnlockRange;
 	uint32_t DataReceiveCount;
 };
-struct _GeoData GeoData;
+struct _GeoData Geo;
 
 
 #define MESSAGE_LENGTH 		100
@@ -155,6 +156,7 @@ struct _GPSReadBuffer
 };
 struct _GPSReadBuffer GPSRead;
 
+uint32_t g_GPSFailCount;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -421,8 +423,9 @@ void parseString()
 
 	if(goodCopy)
 	{
-		GeoData.DataReceiveCount++;
-		UARTprintf("Success %u\n",GeoData.DataReceiveCount);
+		Geo.DataReceiveCount++;
+		g_GPSFailCount = 0;
+		UARTprintf("Success %u\n",Geo.DataReceiveCount);
 		sscanf(message,"%f,%f,%c,%f,%c,%d,%d,%f,%f,%c,%f,%c,%f,%f",
 				&(GPS_GPGGA.UTCTime),
 				&(GPS_GPGGA.Latitude),
@@ -441,6 +444,7 @@ void parseString()
 	}
 	else
 	{
+		g_GPSFailCount++;
 		UARTprintf("Failed\n");
 	}
 }
@@ -493,6 +497,50 @@ void GPSPower(uint32_t Cmd)
 	    UARTprintf("GPS powered off\n");
 	}
 }
+
+
+void DegDecMinToDecDeg(void){
+
+	float tempLat, tempLong;
+	double intPartLat, intPartLong;
+	double fractPartLat, fractPartLong;
+
+	tempLat = GPS_GPGGA.Latitude / 100;
+	tempLong = GPS_GPGGA.Longitude / 100;
+
+	fractPartLat = modf(tempLat, &intPartLat);
+	fractPartLong = modf(tempLong, &intPartLong);
+
+	fractPartLat *= 1.667; // fractPartLat*100/60, convert degressMinutes to decimal degrees
+	fractPartLong *= 1.667; // fractPartLong*100/60, convert degressMinutes to decimal degrees
+
+	Geo.Latitude = intPartLat + fractPartLat;
+	Geo.Longitude = intPartLong + fractPartLong;
+
+	if(GPS_GPGGA.NSIndicator == 'S') Geo.Latitude *= -1;
+	if(GPS_GPGGA.EWIndicator == 'W') Geo.Longitude *= -1;
+
+}
+
+
+void Haversine(){
+	long r = 6371;
+
+	double dLat = (Geo.Latitude - Geo.TargetLatitude) * DEG_TO_RAD;
+	double dLon = (Geo.Longitude - Geo.TargetLongitude) * DEG_TO_RAD;
+
+	double Lat1 = Geo.Latitude * DEG_TO_RAD;
+	double Lat2 = Geo.TargetLatitude * DEG_TO_RAD;
+
+	double a, c;
+
+	a = sin(dLat/2) * sin (dLat/2) + sin(dLon/2) * sin(dLon/2) * cos(Lat1) * cos(Lat2);
+	c = 2 * atan2( sqrt(a), sqrt(1-a));
+
+	Geo.Range = r * c * 1000;
+
+}
+
 
 int
 main(void)
@@ -551,9 +599,16 @@ main(void)
     LCDCommand(I2C2_BASE, LCD_ROW_2);
     LCDTransmitString(I2C2_BASE, strlen(NoGPSRow2), NoGPSRow2);
 
-    g_LockStatus = STUNLOCKED;
-    BoxLock(CMDLOCK);
-
+    char tempString[50];
+	Geo.TargetLatitude = -34.861669;
+	sprintf(tempString, "Target latitude set:  %11.6f\n", Geo.TargetLatitude);
+    UARTprintf(tempString);
+	Geo.TargetLongitude = 138.6460592;
+	sprintf(tempString, "Target longitude set: %11.6f\n", Geo.TargetLongitude);
+    UARTprintf(tempString);
+	Geo.UnlockRange = 40.0;
+	sprintf(tempString, "Unlock range set: %4.2fm\n", Geo.UnlockRange);
+	UARTprintf(tempString);
 
     //
     // Enable processor interrupts.
@@ -562,12 +617,18 @@ main(void)
     UARTprintf("Enabling interrupts\n\n");
     ROM_IntMasterEnable();
 
-    GeoData.DataReceiveCount = 0;
+    Geo.DataReceiveCount = 0;
+    g_GPSFailCount = 0;
     GPSPower(GPSON);
 
     bool gpsLockedPrev = false, gpsLocked = false;
     uint32_t lastReceiveCount = 0;
 
+    UARTprintf("***************************\n");
+    UARTprintf("* Initialisation complete *\n");
+    UARTprintf("***************************\n\n");
+    g_LockStatus = STUNLOCKED;
+    BoxLock(CMDLOCK);
     //
     // Loop forever.
     //
@@ -586,7 +647,7 @@ main(void)
     	}
 
     	gpsLockedPrev = gpsLocked;
-    	gpsLocked = (GPS_GPGGA.Latitude > 0.0 && GPS_GPGGA.Longitude > 0.0);
+    	gpsLocked = (GPS_GPGGA.Latitude > 0.0 && GPS_GPGGA.Longitude > 0.0 && g_GPSFailCount < 4);
 
     	if(gpsLocked && !gpsLockedPrev)
     	{
@@ -604,29 +665,56 @@ main(void)
     	//
     	// Using the GPS receive count effectively gives us a 1Hz pulse.
     	//
-    	if(gpsLocked && GeoData.DataReceiveCount != lastReceiveCount)
+    	if(gpsLocked && Geo.DataReceiveCount != lastReceiveCount)
     	{
-    		lastReceiveCount = GeoData.DataReceiveCount;
+    		lastReceiveCount = Geo.DataReceiveCount;
+
+			DegDecMinToDecDeg();
+			Haversine();
 
     		LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
-    		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Latitude,(char)GPS_GPGGA.NSIndicator);
+/*    		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Latitude,(char)GPS_GPGGA.NSIndicator);
     		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
     		LCDCommand(I2C2_BASE, LCD_ROW_2);
     		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Longitude,(char)GPS_GPGGA.EWIndicator);
     		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+*/
+    		sprintf(lcdMessage,"@%.2fm",Geo.Range);
+    		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+    		LCDCommand(I2C2_BASE, LCD_ROW_2);
+    		if(g_LockStatus == STLOCKED)
+    		{
+    			sprintf(lcdMessage,"@%.2fm - LOCKED",Geo.UnlockRange);
+    			LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+    		}
+    		else
+    		{
+    			sprintf(lcdMessage,"@***UNLOCKED!!***",Geo.Range);
+    			LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+    		}
+    		sprintf(tempString,"%fm\n",Geo.Range);
+    		UARTprintf(tempString);
     	}
+
+
+		if(gpsLocked && Geo.Range <= Geo.UnlockRange)
+		{
+			BoxLock(CMDUNLOCK);
+		}
+		else if(gpsLocked && Geo.Range > Geo.UnlockRange)
+		{
+			BoxLock(CMDLOCK);
+		}
+
+
 
         if(GPIOPinRead(PUSHBUTTON_BASE, PUSHBUTTON))
         {
-        	BoxLock(CMDUNLOCK);
- //       	LCDBacklight(LCDON);
-
+//        	BoxLock(CMDLOCK);
         }
         else
         {
-        	BoxLock(CMDLOCK);
-//        	LCDBacklight(LCDOFF);
-            GPSPower(GPSOFF);
+        	BoxLock(CMDUNLOCK);
         }
 
     }
