@@ -336,6 +336,8 @@ UART1IntHandler(void)
     // Clear the asserted interrupts.
     ROM_UARTIntClear(UART1_BASE, ui32Status);
 
+//    UARTprintf("GPSint\n");
+
     // Loop while there are characters in the receive FIFO, and there isn't already a message pending read.
     while(ROM_UARTCharsAvail(UART1_BASE) && !GPSRead.MessageReady)
     {
@@ -383,7 +385,7 @@ void parseString()
 {
 
 	char message[MESSAGE_LENGTH];
-	uint32_t i;
+	uint32_t i, commaCount;
 	bool goodCopy;
 
 	for(i=0;i<MESSAGE_LENGTH;i++)
@@ -391,15 +393,21 @@ void parseString()
 		message[i] = 0;
 	}
 
+	UARTprintf("Parsing GPS string...");
 	goodCopy = false;
 	i=0;
+	commaCount = 0;
 	while(true){
 		message[i] = GPSRead.RxBuffer[i+7];
 		i++;
 		if (GPSRead.RxBuffer[i+7] == '*')
 		{
-			goodCopy = true;
+			goodCopy = (commaCount == 13);
 			break;
+		}
+		else if(GPSRead.RxBuffer[i+7] == ',')
+		{
+			commaCount++;
 		}
 		else if (GPSRead.RxBuffer[i+7] == '*' || i >= MESSAGE_LENGTH)
 		{
@@ -408,8 +416,12 @@ void parseString()
 		}
 	}
 
+
+
 	if(goodCopy)
 	{
+		UARTprintf("Success\n");
+//		UARTprintf("%s",message);
 		sscanf(message,"%f,%f,%c,%f,%c,%d,%d,%f,%f,%c,%f,%c,%f,%f",
 				&(GPS_GPGGA.UTCTime),
 				&(GPS_GPGGA.Latitude),
@@ -426,6 +438,10 @@ void parseString()
 				&(GPS_GPGGA.DGPSTime),
 				&(GPS_GPGGA.DGPSID));
 	}
+	else
+	{
+		UARTprintf("Failed\n");
+	}
 }
 
 
@@ -435,17 +451,17 @@ void BoxLock(uint32_t Cmd)
 	{
 		g_LockStatus = STLOCKED;
 		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,0);
-		SysCtlDelay(SysCtlClockGet()/4);
-		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,LOCK_LID);
 	    UARTprintf("****** BOX LOCKED ******\n");
+		SysCtlDelay(SysCtlClockGet()/12);
+		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,LOCK_LID);
 	}
 	else if(Cmd == CMDUNLOCK && g_LockStatus == STLOCKED)
 	{
 		g_LockStatus = STUNLOCKED;
 		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,0);
-		SysCtlDelay(SysCtlClockGet()/4);
-		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,UNLOCK_LID);
 		UARTprintf("***** BOX UNLOCKED *****\n");
+		SysCtlDelay(SysCtlClockGet()/12);
+		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,UNLOCK_LID);
 	}
 }
 
@@ -527,7 +543,8 @@ main(void)
 	LCDBacklight(LCDON);
 
 	char string1[] = "@Aquiring Lock...";
-	char string2[] = "@Please Wait";
+	char string2[] = "@Please Wait     ";
+	char lcdMessage[17];
 
     LCDTransmitString(I2C2_BASE, strlen(string1), string1);
     LCDCommand(I2C2_BASE, LCD_ROW_2);
@@ -541,10 +558,12 @@ main(void)
     // Enable processor interrupts.
     //
 
-    UARTprintf("Enabling interrupts\n\n");
+//    UARTprintf("Enabling interrupts\n\n");
     ROM_IntMasterEnable();
 
     GPSPower(GPSON);
+
+    bool gpsLockedPrev = false, gpsLocked = false;
 
     //
     // Loop forever.
@@ -563,6 +582,28 @@ main(void)
     		GPSRead.MessageReady = false;
     	}
 
+    	gpsLockedPrev = gpsLocked;
+    	gpsLocked = (GPS_GPGGA.Latitude > 0.0 && GPS_GPGGA.Longitude > 0.0);
+
+    	if(gpsLocked && !gpsLockedPrev)
+    	{
+    		UARTprintf("GPS lock aquired\n");
+    	    LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
+    	    sprintf(lcdMessage,"%10.7f%s",GPS_GPGGA.Latitude,GPS_GPGGA.NSIndicator);
+    	    LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+    	    LCDCommand(I2C2_BASE, LCD_ROW_2);
+    	    sprintf(lcdMessage,"%10.7f%s",GPS_GPGGA.Longitude,GPS_GPGGA.EWIndicator);
+    	    LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
+    	}
+    	else if(!gpsLocked && gpsLockedPrev)
+    	{
+    		UARTprintf("GPS lock lost\n");
+    	    LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
+    	    LCDTransmitString(I2C2_BASE, strlen(string1), string1);
+    	    LCDCommand(I2C2_BASE, LCD_ROW_2);
+    	    LCDTransmitString(I2C2_BASE, strlen(string2), string2);
+
+    	}
 
         if(GPIOPinRead(PUSHBUTTON_BASE, PUSHBUTTON))
         {
