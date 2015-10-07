@@ -100,7 +100,6 @@
 #define LOCK_LID_BASE   GPIO_PORTD_BASE
 #define UNLOCK_LID_BASE GPIO_PORTD_BASE
 
-
 #define CMDLOCK		1
 #define CMDUNLOCK	2
 #define STLOCKED	1
@@ -159,7 +158,8 @@ struct _GPSReadBuffer GPSRead;
 
 uint32_t g_GPSFailCount;
 
-uint32_t g_Count;
+#define SLEEP_TIME 600	// 60 seconds
+uint32_t g_SysTickCount;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -392,14 +392,16 @@ void GPIOdIntHandler()
     // Push button was pressed.
     if(ui32Status & PUSHBUTTON)
     {
+    	g_SysTickCount = 0;
     	BoxLock(CMDUNLOCK);
+    	// TODO: Wake from sleep
     }
 }
 
 
 void SysTickIntHandler()
 {
-	g_Count++;
+	g_SysTickCount++;
 }
 
 void parseString()
@@ -593,6 +595,7 @@ main(void)
 
 	char NoGPSRow1[] = "@Aquiring Lock...";
 	char NoGPSRow2[] = "@Please Wait     ";
+	char BlankLine[] = "@                ";
 	char lcdMessage[17];
 
     LCDTransmitString(I2C2_BASE, strlen(NoGPSRow1), NoGPSRow1);
@@ -622,8 +625,7 @@ main(void)
 
     bool gpsLockedPrev = false, gpsLocked = false;
     uint32_t lastReceiveCount = 0;
-
-    g_Count = 0;
+    g_SysTickCount = 0;
 
     //
     // Set up the period for the SysTick timer.  The SysTick timer period will
@@ -689,14 +691,17 @@ main(void)
 			DegDecMinToDecDeg();
 			Haversine();
 
-    		LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
+	  		LCDCommand(I2C2_BASE, LCD_ROW_1);
+	  		LCDTransmitString(I2C2_BASE, 17, BlankLine);
+//			LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
 /*    		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Latitude,(char)GPS_GPGGA.NSIndicator);
     		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
     		LCDCommand(I2C2_BASE, LCD_ROW_2);
     		sprintf(lcdMessage,"@%11.5f%c",GPS_GPGGA.Longitude,(char)GPS_GPGGA.EWIndicator);
     		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
 */
-    		sprintf(lcdMessage,"@%.2fm",Geo.Range);
+	  		LCDCommand(I2C2_BASE, LCD_ROW_1);
+	  		sprintf(lcdMessage,"@%.0fm",Geo.Range);
     		LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
     		LCDCommand(I2C2_BASE, LCD_ROW_2);
     		if(g_LockStatus == STLOCKED)
@@ -723,6 +728,23 @@ main(void)
 			BoxLock(CMDLOCK);
 		}
 
+		if(g_SysTickCount > SLEEP_TIME)
+		{
+			LCDBacklight(LCDOFF);
+			LCDCommand(I2C2_BASE, LCD_CLEAR_DISPLAY);
+			GPSPower(GPSOFF);
+			GPS_GPGGA.Latitude = 0.0;
+			GPS_GPGGA.Longitude = 0.0;
+			Geo.Latitude = 0.0;
+			Geo.Longitude = 0.0;
+
+	    	// TODO: Put MCU to sleep mode
+		}
+		else
+		{
+			LCDBacklight(LCDON);
+			GPSPower(GPSON);
+		}
 
 
         if(GPIOPinRead(PUSHBUTTON_BASE, PUSHBUTTON))
