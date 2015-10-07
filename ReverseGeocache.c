@@ -76,6 +76,7 @@
 #include "driverlib/pin_map.h"
 #include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
+#include "driverlib/systick.h"
 #include "driverlib/uart.h"
 #include "utils/uartstdio.h"
 
@@ -158,27 +159,14 @@ struct _GPSReadBuffer GPSRead;
 
 uint32_t g_GPSFailCount;
 
+uint32_t g_Count;
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 #define DEG_TO_RAD 			M_PI/180
 
-
-//*****************************************************************************
-//
-//! \addtogroup example_list
-//! <h1>Simple Project (project)</h1>
-//!
-//! A very simple example that can be used as a starting point for more complex
-//! projects.  Most notably, this project is fully TI BSD licensed, so any and
-//! all of the code (including the startup code) can be used as allowed by that
-//! license.
-//!
-//! The provided code simply toggles a GPIO using the Tiva Peripheral Driver
-//! Library.
-//
-//*****************************************************************************
 
 //*****************************************************************************
 //
@@ -199,8 +187,7 @@ __error__(char *pcFilename, uint32_t ui32Line)
 // Configure the UART and its pins.  This must be called before UARTprintf().
 //
 //*****************************************************************************
-void
-ConfigureUART0(void)
+void ConfigureUART0(void)
 {
 	//
 	// Enable the GPIO Peripheral used by the UART.
@@ -230,8 +217,7 @@ ConfigureUART0(void)
 	UARTStdioConfig(0, 115200, 16000000);
 }
 
-void
-ConfigureUART1(void)
+void ConfigureUART1(void)
 {
 	//
 	// Enable the GPIO Peripheral used by the UART.
@@ -272,7 +258,6 @@ ConfigureUART1(void)
 
 void I2C2Configure()
 {
-
 	//
 	// The I2C0 peripheral must be enabled before use.
 	//
@@ -315,12 +300,27 @@ void I2C2Configure()
 	// the slave.
 	//
 	I2CMasterSlaveAddrSet(I2C2_BASE, SLAVE_ADDRESS, false);
-
-
 }
 
-
-
+void BoxLock(uint32_t Cmd)
+{
+	if(Cmd == CMDLOCK && g_LockStatus == STUNLOCKED)
+	{
+		g_LockStatus = STLOCKED;
+		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,0);
+	    UARTprintf("****** BOX LOCKED ******\n");
+		SysCtlDelay(SysCtlClockGet()/12);
+		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,LOCK_LID);
+	}
+	else if(Cmd == CMDUNLOCK && g_LockStatus == STLOCKED)
+	{
+		g_LockStatus = STUNLOCKED;
+		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,0);
+		UARTprintf("***** BOX UNLOCKED *****\n");
+		SysCtlDelay(SysCtlClockGet()/12);
+		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,UNLOCK_LID);
+	}
+}
 
 
 //*****************************************************************************
@@ -328,8 +328,7 @@ void I2C2Configure()
 // The UART interrupt handler.
 //
 //*****************************************************************************
-void
-UART1IntHandler(void)
+void UART1IntHandler()
 {
     uint32_t ui32Status;
     char receiveChar;
@@ -338,8 +337,6 @@ UART1IntHandler(void)
 
     // Clear the asserted interrupts.
     ROM_UARTIntClear(UART1_BASE, ui32Status);
-
-//    UARTprintf("GPSint\n");
 
     // Loop while there are characters in the receive FIFO, and there isn't already a message pending read.
     while(ROM_UARTCharsAvail(UART1_BASE) && !GPSRead.MessageReady)
@@ -383,6 +380,27 @@ UART1IntHandler(void)
 }
 
 
+void GPIOdIntHandler()
+{
+    uint32_t ui32Status;
+    // Get the interrrupt status.
+    ui32Status = GPIOIntStatus(GPIO_PORTD_BASE, true);
+
+    // Clear the asserted interrupts.
+    GPIOIntClear(GPIO_PORTD_BASE, ui32Status);
+
+    // Push button was pressed.
+    if(ui32Status & PUSHBUTTON)
+    {
+    	BoxLock(CMDUNLOCK);
+    }
+}
+
+
+void SysTickIntHandler()
+{
+	g_Count++;
+}
 
 void parseString()
 {
@@ -446,27 +464,6 @@ void parseString()
 	{
 		g_GPSFailCount++;
 		UARTprintf("Failed\n");
-	}
-}
-
-
-void BoxLock(uint32_t Cmd)
-{
-	if(Cmd == CMDLOCK && g_LockStatus == STUNLOCKED)
-	{
-		g_LockStatus = STLOCKED;
-		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,0);
-	    UARTprintf("****** BOX LOCKED ******\n");
-		SysCtlDelay(SysCtlClockGet()/12);
-		GPIOPinWrite(LOCK_LID_BASE,LOCK_LID,LOCK_LID);
-	}
-	else if(Cmd == CMDUNLOCK && g_LockStatus == STLOCKED)
-	{
-		g_LockStatus = STUNLOCKED;
-		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,0);
-		UARTprintf("***** BOX UNLOCKED *****\n");
-		SysCtlDelay(SysCtlClockGet()/12);
-		GPIOPinWrite(UNLOCK_LID_BASE,UNLOCK_LID,UNLOCK_LID);
 	}
 }
 
@@ -563,6 +560,9 @@ main(void)
     //
     ROM_GPIOPinTypeGPIOInput(GPIO_PORTD_BASE, PUSHBUTTON);
     ROM_GPIOPadConfigSet(GPIO_PORTD_BASE, PUSHBUTTON, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD_WPU);
+    ROM_GPIOIntTypeSet(PUSHBUTTON_BASE, PUSHBUTTON, GPIO_BOTH_EDGES);
+    GPIOIntEnable(PUSHBUTTON_BASE, PUSHBUTTON);
+    ROM_IntEnable(INT_GPIOD);
 
     //
     // Configure outputs.
@@ -571,7 +571,7 @@ main(void)
     ROM_GPIOPadConfigSet(GPIO_PORTD_BASE, GPS_POWER|LCD_POWER|LOCK_LID|UNLOCK_LID, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_OD);
 
     ROM_GPIOPinTypeGPIOOutput(LED_BASE, LED_RED|LED_GREEN|LED_BLUE);
-	GPIOPinWrite(LED_BASE,LED_RED|LED_GREEN|LED_BLUE,0);
+	ROM_GPIOPinWrite(LED_BASE,LED_RED|LED_GREEN|LED_BLUE,0);
 	//
 	// Open UARTS.
 	//
@@ -600,10 +600,10 @@ main(void)
     LCDTransmitString(I2C2_BASE, strlen(NoGPSRow2), NoGPSRow2);
 
     char tempString[50];
-	Geo.TargetLatitude = -34.861669;
+	Geo.TargetLatitude = -34.859414;
 	sprintf(tempString, "Target latitude set:  %11.6f\n", Geo.TargetLatitude);
     UARTprintf(tempString);
-	Geo.TargetLongitude = 138.6460592;
+	Geo.TargetLongitude = 138.646513;
 	sprintf(tempString, "Target longitude set: %11.6f\n", Geo.TargetLongitude);
     UARTprintf(tempString);
 	Geo.UnlockRange = 40.0;
@@ -613,7 +613,6 @@ main(void)
     //
     // Enable processor interrupts.
     //
-
     UARTprintf("Enabling interrupts\n\n");
     ROM_IntMasterEnable();
 
@@ -623,6 +622,24 @@ main(void)
 
     bool gpsLockedPrev = false, gpsLocked = false;
     uint32_t lastReceiveCount = 0;
+
+    g_Count = 0;
+
+    //
+    // Set up the period for the SysTick timer.  The SysTick timer period will
+    // be equal to the system clock / 10, resulting in a period of 100 ms.
+    //
+    SysTickPeriodSet(SysCtlClockGet() / 10);
+
+    //
+    // Enable the SysTick Interrupt.
+    //
+    SysTickIntEnable();
+
+    //
+    // Enable SysTick.
+    //
+    SysTickEnable();
 
     UARTprintf("***************************\n");
     UARTprintf("* Initialisation complete *\n");
@@ -689,7 +706,7 @@ main(void)
     		}
     		else
     		{
-    			sprintf(lcdMessage,"@***UNLOCKED!!***",Geo.Range);
+    			sprintf(lcdMessage,"@***UNLOCKED!!***");
     			LCDTransmitString(I2C2_BASE, strlen(lcdMessage), lcdMessage);
     		}
     		sprintf(tempString,"%fm\n",Geo.Range);
@@ -710,11 +727,11 @@ main(void)
 
         if(GPIOPinRead(PUSHBUTTON_BASE, PUSHBUTTON))
         {
-//        	BoxLock(CMDLOCK);
+        	BoxLock(CMDLOCK);
         }
         else
         {
-        	BoxLock(CMDUNLOCK);
+//        	BoxLock(CMDUNLOCK);
         }
 
     }
